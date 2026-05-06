@@ -1,0 +1,78 @@
+ENVIRONMENT:
+  MAX_EPISODE_STEPS: 20
+SIMULATOR:
+  ACTION_SPACE_CONFIG: v0
+  AGENT_0:
+    SENSORS: [RGB_SENSOR, DEPTH_SENSOR]
+  FORWARD_STEP_SIZE: 0.25
+  TURN_ANGLE: 15
+  HABITAT_SIM_V0:
+    GPU_DEVICE_ID: 0
+    ALLOW_SLIDING: True
+  RGB_SENSOR:
+    WIDTH: 224
+    HEIGHT: 224
+    HFOV: 90
+    TYPE: HabitatSimRGBSensor
+  DEPTH_SENSOR:
+    WIDTH: 256  # pretrained DDPPO resnet needs 256x256
+    HEIGHT: 256
+    HFOV: 90
+  TYPE:
+    Sim-v1
+TASK:
+  TYPE: VLN-v0
+  SUCCESS_DISTANCE: 1.0
+  SENSORS: [
+    INSTRUCTION_SENSOR,
+    SHORTEST_PATH_SENSOR,
+    VLN_ORACLE_PROGRESS_SENSOR
+  ]
+  INSTRUCTION_SENSOR_UUID: instruction
+  POSSIBLE_ACTIONS: [STOP, MOVE_FORWARD, TURN_LEFT, TURN_RIGHT, HIGHTOLOW]
+  MEASUREMENTS: [
+    # DISTANCE_TO_GOAL,
+    # SUCCESS,
+    # SPL,
+    # NDTW,
+    # PATH_LENGTH,
+    # ORACLE_SUCCESS,
+    # STEPS_TAKEN
+    TOP_DOWN_MAP_VLNCE,
+    DISTANCE_TO_GOAL,
+    SUCCESS,
+    SPL,
+    PATH_LENGTH,
+    ORACLE_SUCCESS,
+    STEPS_TAKEN,
+    COLLISIONS,
+    BRANCH_SELECTION_ACCURACY,
+    CONDITIONAL_SUCCESS_RATE
+  ]
+  SUCCESS:
+    SUCCESS_DISTANCE: 1.0
+  SPL:
+    SUCCESS_DISTANCE: 1.0
+  BRANCH_SELECTION_ACCURACY:
+    SUCCESS_DISTANCE: 1.0
+  NDTW:
+    SUCCESS_DISTANCE: 1.0
+    # Must be a *separate* gzip: dict[str(episode_id)] -> {"locations": [[x,y,z], ...]}. Not the same file as DATA_PATH.
+    # Generate once: python scripts/build_ansr_gt.py --episodes /path/to/all.json.gz --out /path/to/all_gt.json.gz
+    GT_PATH: ../vln-zero.github.io/VLN_CE/data/datasets/ANSR_V1/{split}/{split}_gt.json.gz
+  SDTW:
+    SUCCESS_DISTANCE: 1.0
+    GT_PATH: ../vln-zero.github.io/VLN_CE/data/datasets/ANSR_V1/{split}/{split}_gt.json.gz
+  ORACLE_SUCCESS:
+    SUCCESS_DISTANCE: 1.0
+DATASET:
+  # TYPE: VLN-CE-v1
+  TYPE: ANSR-v1
+  # Eval overwrites this with EVAL.SPLIT from run_OpenNav.yaml / CLI — use EVAL.SPLIT all for ANSR.
+  SPLIT: gibson_100
+  # One file: .../ANSR_V1/all/all.json.gz — {split} becomes "all" when SPLIT/EVAL.SPLIT is all.
+  DATA_PATH: ../vln-zero.github.io/VLN_CE/data/datasets/ANSR_V1/{split}/{split}.json.gz
+  # Must be the scene_datasets root (parent of gibson/), not .../gibson itself.
+  SCENES_DIR: ../vln-zero.github.io/VLN_CE/data/scene_datasets/
+  EPISODES_TO_LOAD: 0 #2 # 0 = load all; N>0 = first N episodes after filters (gzip order).
+

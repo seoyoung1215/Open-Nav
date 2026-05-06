@@ -379,12 +379,18 @@ class BranchSelectionAccuracy(Measure):
         self._subgoal_positions = []
         if getattr(episode, "subgoals", None) is not None:
             self._subgoal_positions = [sg.position for sg in episode.subgoals]
+        self._final_goal_position = episode.goals[0].position
         self._next_subgoal_idx = 0
         self._metric = 0.0
         self.update_metric(episode=episode)
 
     def update_metric(self, *args: Any, **kwargs: Any) -> None:
         if not self._subgoal_positions:
+            if self._metric == 1.0:
+                return
+            agent_pos = self._sim.get_agent_state().position
+            if euclidean_distance(agent_pos, self._final_goal_position) <= self._success_distance:
+                self._metric = 1.0
             return
         if self._next_subgoal_idx >= len(self._subgoal_positions):
             return
