@@ -50,7 +50,7 @@ from vlnce_baselines.common.env_utils import (
 )
 from vlnce_baselines.common.utils import *
 
-from habitat_extensions.measures import NDTW
+from habitat_extensions.measures import euclidean_distance
 from fastdtw import fastdtw
 
 from ..utils import get_camera_orientations
@@ -58,9 +58,13 @@ from ..models.utils import (
     length2mask, dir_angle_feature, dir_angle_feature_with_ele,
 )
 
-with warnings.catch_warnings():
-    warnings.filterwarnings("ignore", category=FutureWarning)
-    import tensorflow as tf  # noqa: F401
+# TensorFlow is not used in this trainer; optional import avoids a hard dependency.
+try:
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        import tensorflow as tf  # noqa: F401
+except ImportError:
+    pass
 
 class BaseVLNCETrainerLLM(BaseILTrainer):
     r"""A base trainer for VLN-CE imitation learning."""
@@ -147,40 +151,38 @@ class BaseVLNCETrainerLLM(BaseILTrainer):
         
     def generate_input(self, observations):
         instruction = observations['instruction']['text']
-        image_dict = {} 
+        image_dict = {}
         rgb_image_dict = {}
         depth_image_dict = {}
         rgb_index = 0
         depth_index = 0
         for key in observations.keys():
-            image_path = "./image_show/"
-            if 'rgb' in key:
-                image_path += f"{key}.jpg"
+            if "rgb" in key:
                 image = Image.fromarray(observations[key], mode="RGB")
-                dir_name = os.path.dirname(image_path)
-                if not os.path.exists(dir_name):
-                    os.makedirs(dir_name)
-                image.save(image_path, format="JPEG")
-                rgb_image_dict[str(rgb_index)] = Image.open(image_path)
+                # Do not reload from disk: lazy JPEG reads race with overwriting ./image_show/*.jpg.
+                rgb_image_dict[str(rgb_index)] = image.copy()
                 rgb_index += 1
-            if 'depth' in key:
-                image_path += f"{key}.jpg"
-                if observations[key].ndim == 3 and observations[key].shape[-1] == 1:
-                    depth_map = observations[key].squeeze(-1)
-                depth_img = (255 * (depth_map - np.min(depth_map)) / (np.max(depth_map) - np.min(depth_map))).astype(np.uint8)
+            if "depth" in key:
+                arr = observations[key]
+                if arr.ndim == 3 and arr.shape[-1] == 1:
+                    depth_map = arr.squeeze(-1)
+                else:
+                    depth_map = np.asarray(arr).squeeze()
+                dmin = np.min(depth_map)
+                dmax = np.max(depth_map)
+                denom = float(dmax - dmin)
+                if denom <= 0:
+                    denom = 1.0
+                depth_img = (255 * (depth_map - dmin) / denom).astype(np.uint8)
                 image = Image.fromarray(depth_img)
-                dir_name = os.path.dirname(image_path)
-                if not os.path.exists(dir_name):
-                    os.makedirs(dir_name)
-                image.save(image_path)
-                depth_image_dict[str(depth_index)] = Image.open(image_path)
+                depth_image_dict[str(depth_index)] = image.copy()
                 depth_index += 1
         for index in rgb_image_dict:
             image_dict[index] = {
-                'rgb': rgb_image_dict[index],
-                'depth': depth_image_dict[index]
+                "rgb": rgb_image_dict[index],
+                "depth": depth_image_dict[index],
             }
-            
+
         return instruction, image_dict
     
     def construct_image_dicts(self, batch_distance, batch_angles, image_dict):
@@ -492,11 +494,41 @@ class BaseVLNCETrainerLLM(BaseILTrainer):
 
                     act_con_path = positions_
                     gt_con_path = np.array(gt_path).astype(float)
-                    dtw_distance = fastdtw(act_con_path, gt_con_path, dist=NDTW.euclidean_distance)[0]
+                    dtw_distance = fastdtw(
+                        act_con_path, gt_con_path, dist=euclidean_distance
+                    )[0]
                     nDTW = np.exp(-dtw_distance / (len(gt_con_path) * config.TASK_CONFIG.TASK.SUCCESS_DISTANCE))
 
                     metric['ndtw'] = nDTW
-                    stats_episodes[current_episodes[i].episode_id] = metric 
+
+                    def _scalar(v):
+                        if hasattr(v, "item"):
+                            return float(v.item())
+                        return float(v)
+
+                    if "branch_selection_accuracy" in info:
+                        metric["branch_selection_accuracy"] = _scalar(
+                            info["branch_selection_accuracy"]
+                        )
+                    if "conditional_success_rate" in info:
+                        metric["conditional_success_rate"] = _scalar(
+                            info["conditional_success_rate"]
+                        )
+                    stats_episodes[current_episodes[i].episode_id] = metric
+
+                    snap_n = getattr(
+                        config.EVAL, "SNAPSHOT_EVERY_N_EPISODES", 0
+                    ) or 0
+                    if snap_n > 0 and len(stats_episodes) % snap_n == 0:
+                        split_snap = config.TASK_CONFIG.DATASET.SPLIT
+                        os.makedirs(config.RESULTS_DIR, exist_ok=True)
+                        snap_path = os.path.join(
+                            config.RESULTS_DIR,
+                            f"stats_ep_ckpt_{split_snap}_"
+                            f"r{self.local_rank}_w{self.world_size}_snapshot.json",
+                        )
+                        with open(snap_path, "w") as sf:
+                            json.dump(stats_episodes, sf, indent=2)
 
                     observations[i] = envs.reset_at(i)[0]
                     instruction, images_list = self.generate_input(observations[i])
@@ -541,9 +573,16 @@ class BaseVLNCETrainerLLM(BaseILTrainer):
                     rgb_frames,
                 )
                 headings = headings.tolist()
-            except Exception as e:
-                nav_logger.info(f"Error in next action prediction: {e}")
-                current_step -= 1
+            except Exception:
+                nav_logger.exception(
+                    "Error in next action prediction; stopping eval "
+                    "(continuing leaves VectorEnv in a bad state if the worker failed)."
+                )
+                try:
+                    envs.close()
+                except Exception:
+                    pass
+                raise
         envs.close()
         if config.use_pbar:
             pbar.close()
@@ -571,6 +610,7 @@ class BaseVLNCETrainerLLM(BaseILTrainer):
                 aggregated_stats[k] = v
 
         split = config.TASK_CONFIG.DATASET.SPLIT
+        os.makedirs(config.RESULTS_DIR, exist_ok=True)
         fname = os.path.join(
             config.RESULTS_DIR,
             f"stats_ep_ckpt_{split}_r{self.local_rank}_w{self.world_size}.json",
@@ -633,9 +673,16 @@ class BaseVLNCETrainerLLM(BaseILTrainer):
 
         self.config.defrost()
         self.config.TASK_CONFIG.DATASET.ROLES = ["guide"]
-        self.config.TASK_CONFIG.TASK.MEASUREMENTS = ['POSITION',
-                                                     'STEPS_TAKEN',
-                                                     ]
+        # POSITION/STEPS_TAKEN for traj logging; DISTANCE_TO_GOAL + SUCCESS for Habitat Success;
+        # branch metrics depend on SUCCESS (CSR uses Habitat success, may differ from manual metric).
+        self.config.TASK_CONFIG.TASK.MEASUREMENTS = [
+            "POSITION",
+            "STEPS_TAKEN",
+            "DISTANCE_TO_GOAL",
+            "SUCCESS",
+            "BRANCH_SELECTION_ACCURACY",
+            "CONDITIONAL_SUCCESS_RATE",
+        ]
         if 'HIGHTOLOW' in self.config.TASK_CONFIG.TASK.POSSIBLE_ACTIONS:
             idx = self.config.TASK_CONFIG.TASK.POSSIBLE_ACTIONS.index('HIGHTOLOW')
             self.config.TASK_CONFIG.TASK.POSSIBLE_ACTIONS[idx] = 'HIGHTOLOWEVAL'

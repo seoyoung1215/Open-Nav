@@ -1,0 +1,55 @@
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ----- Local env / secrets -----
+.env
+.env.*
+!.env.example
+
+# ----- Editor / OS -----
+.DS_Store
+.idea/
+.vscode/
+
+# ----- Runtime outputs (regenerated each eval) -----
+logs/
+navigator_log.log
+*.log
+cache_files/
+image_show/
+
+# ----- Checkpoints & pretrained weights (large binaries) -----
+*.pth
+*.pt
+*.bin
+*.safetensors
+*.ckpt
+waypoint_prediction/checkpoints/
+
+data/pretrained_models/
+data/ddppo-models/
+
+# Recognize Anything: clone upstream separately (avoids nested .git + huge weights).
+# If you fork and patch RAM code, remove this line and delete recognize_anything/.git
+# before committing, or use a git submodule instead.
+recognize_anything/
+
+# SpatialBot checkpoint tree (clone or download per project docs; often huge)
+SpatialBot3B/
+
+# ----- Optional: large preprocessed datasets -----
+data/datasets/R2R_VLNCE_v1-2_preprocessed/
+
+# Hugging Face / transformers cache (if created under repo root)
+.cache/

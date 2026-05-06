@@ -5,19 +5,17 @@ from typing import Dict, List, Optional, Union
 
 import attr
 from habitat.config import Config
-from habitat.core.dataset import Dataset
+from habitat.core.dataset import ALL_SCENES_MASK, Dataset
 from habitat.core.registry import registry
 from habitat.core.utils import not_none_validator
-from habitat.datasets.pointnav.pointnav_dataset import ALL_SCENES_MASK
 from habitat.datasets.utils import VocabDict
 from habitat.tasks.nav.nav import NavigationGoal
 from habitat.tasks.vln.vln import InstructionData, VLNEpisode
-import random
-random.seed(0)
 
 DEFAULT_SCENE_PATH_PREFIX = "data/scene_datasets/"
 ALL_LANGUAGES_MASK = "*"
 ALL_ROLES_MASK = "*"
+ALL_EPISODES_MASK = "*"
 
 
 @attr.s(auto_attribs=True)
@@ -46,34 +44,10 @@ class VLNExtendedEpisode(VLNEpisode):
 
 @registry.register_dataset(name="VLN-CE-v1")
 class VLNCEDatasetV1(Dataset):
-    r"""Class inherited from Dataset that loads a Vision and Language
-    Navigation dataset.
-    """
+    """Loads the R2R VLN-CE dataset"""
 
     episodes: List[VLNEpisode]
     instruction_vocab: VocabDict
-
-    @staticmethod
-    def check_config_paths_exist(config: Config) -> bool:
-        return os.path.exists(
-            config.DATA_PATH.format(split=config.SPLIT)
-        ) and os.path.exists(config.SCENES_DIR)
-
-    @staticmethod
-    def _scene_from_episode(episode: VLNEpisode) -> str:
-        r"""Helper method to get the scene name from an episode.  Assumes
-        the scene_id is formated /path/to/<scene_name>.<ext>
-        """
-        return os.path.splitext(os.path.basename(episode.scene_id))[0]
-
-    @classmethod
-    def get_scenes_to_load(cls, config: Config) -> List[str]:
-        r"""Return a sorted list of scenes"""
-        assert cls.check_config_paths_exist(config)
-        dataset = cls(config)
-        return sorted(
-            {cls._scene_from_episode(episode) for episode in dataset.episodes}
-        )
 
     def __init__(self, config: Optional[Config] = None) -> None:
         self.episodes = []
@@ -83,27 +57,31 @@ class VLNCEDatasetV1(Dataset):
 
         dataset_filename = config.DATA_PATH.format(split=config.SPLIT)
         with gzip.open(dataset_filename, "rt") as f:
-            self.from_json(f.read(), scenes_dir=config.SCENES_DIR, config=config)
+            self.from_json(f.read(), scenes_dir=config.SCENES_DIR)
 
         if ALL_SCENES_MASK not in config.CONTENT_SCENES:
             scenes_to_load = set(config.CONTENT_SCENES)
             self.episodes = [
-                episode
-                for episode in self.episodes
-                if self._scene_from_episode(episode) in scenes_to_load
+                e
+                for e in self.episodes
+                if self.scene_from_scene_path(e.scene_id) in scenes_to_load
             ]
 
-        if config.EPISODES_ALLOWED is not None:
+        if ALL_EPISODES_MASK not in config.EPISODES_ALLOWED:
             ep_ids_before = {ep.episode_id for ep in self.episodes}
-            ep_ids_to_purge = ep_ids_before - set([ int(id) for id in config.EPISODES_ALLOWED])
+            ep_ids_to_purge = ep_ids_before - set(config.EPISODES_ALLOWED)
             self.episodes = [
                 episode
                 for episode in self.episodes
                 if episode.episode_id not in ep_ids_to_purge
             ]
 
+        n_cap = int(getattr(config, "EPISODES_TO_LOAD", 0) or 0)
+        if n_cap > 0:
+            self.episodes = self.episodes[:n_cap]
+
     def from_json(
-        self, json_str: str, scenes_dir: Optional[str] = None, config: Optional[Config] = None
+        self, json_str: str, scenes_dir: Optional[str] = None
     ) -> None:
 
         deserialized = json.loads(json_str)
@@ -111,14 +89,11 @@ class VLNCEDatasetV1(Dataset):
             word_list=deserialized["instruction_vocab"]["word_list"]
         )
 
-        # Get the number of episodes to load from the config
-        episodes_to_load = config.EPISODES_TO_LOAD if config and config.EPISODES_TO_LOAD else len(deserialized["episodes"])
-        # Print the number of episodes being loaded
-        print(f"Loading {episodes_to_load} episodes...")
-        print("************************************************************************")
+        for episode in deserialized["episodes"]:
+            # cast integer IDs to strings
+            episode["episode_id"] = str(episode["episode_id"])
+            episode["trajectory_id"] = str(episode["trajectory_id"])
 
-        # Only load the first `episodes_to_load` episodes
-        for episode in deserialized["episodes"][:episodes_to_load]:
             episode = VLNExtendedEpisode(**episode)
 
             if scenes_dir is not None:
@@ -135,53 +110,30 @@ class VLNCEDatasetV1(Dataset):
                     episode.goals[g_index] = NavigationGoal(**goal)
             self.episodes.append(episode)
 
-        random.shuffle(self.episodes)
+    @classmethod
+    def get_scenes_to_load(cls, config: Config) -> List[str]:
+        """Return a sorted list of scenes"""
+        assert cls.check_config_paths_exist(config)
+        dataset = cls(config)
+        return sorted(
+            {cls.scene_from_scene_path(e.scene_id) for e in dataset.episodes}
+        )
+
+    @staticmethod
+    def check_config_paths_exist(config: Config) -> bool:
+        return os.path.exists(
+            config.DATA_PATH.format(split=config.SPLIT)
+        ) and os.path.exists(config.SCENES_DIR)
 
 
 @registry.register_dataset(name="RxR-VLN-CE-v1")
 class RxRVLNCEDatasetV1(Dataset):
-    r"""Loads the RxR VLN-CE Dataset."""
+    """Loads the RxR VLN-CE Dataset."""
 
     episodes: List[VLNEpisode]
     instruction_vocab: VocabDict
     annotation_roles: List[str] = ["guide", "follower"]
     languages: List[str] = ["en-US", "en-IN", "hi-IN", "te-IN"]
-
-    @staticmethod
-    def _scene_from_episode(episode: VLNEpisode) -> str:
-        r"""Helper method to get the scene name from an episode.  Assumes
-        the scene_id is formated /path/to/<scene_name>.<ext>
-        """
-        return os.path.splitext(os.path.basename(episode.scene_id))[0]
-
-    @staticmethod
-    def _language_from_episode(episode: VLNExtendedEpisode) -> str:
-        return episode.instruction.language
-
-    @classmethod
-    def get_scenes_to_load(cls, config: Config) -> List[str]:
-        r"""Return a sorted list of scenes"""
-        assert cls.check_config_paths_exist(config)
-        dataset = cls(config)
-        return sorted(
-            {cls._scene_from_episode(episode) for episode in dataset.episodes}
-        )
-
-    @classmethod
-    def extract_roles_from_config(cls, config: Config) -> List[str]:
-        if ALL_ROLES_MASK in config.ROLES:
-            return cls.annotation_roles
-        assert set(config.ROLES).issubset(set(cls.annotation_roles))
-        return config.ROLES
-
-    @classmethod
-    def check_config_paths_exist(cls, config: Config) -> bool:
-        return all(
-            os.path.exists(
-                config.DATA_PATH.format(split=config.SPLIT, role=role)
-            )
-            for role in cls.extract_roles_from_config(config)
-        ) and os.path.exists(config.SCENES_DIR)
 
     def __init__(self, config: Optional[Config] = None) -> None:
         self.episodes = []
@@ -199,9 +151,9 @@ class RxRVLNCEDatasetV1(Dataset):
         if ALL_SCENES_MASK not in config.CONTENT_SCENES:
             scenes_to_load = set(config.CONTENT_SCENES)
             self.episodes = [
-                episode
-                for episode in self.episodes
-                if self._scene_from_episode(episode) in scenes_to_load
+                e
+                for e in self.episodes
+                if self.scene_from_scene_path(e.scene_id) in scenes_to_load
             ]
 
         if ALL_LANGUAGES_MASK not in config.LANGUAGES:
@@ -212,7 +164,7 @@ class RxRVLNCEDatasetV1(Dataset):
                 if self._language_from_episode(episode) in languages_to_load
             ]
 
-        if config.EPISODES_ALLOWED is not None:
+        if ALL_EPISODES_MASK not in config.EPISODES_ALLOWED:
             ep_ids_before = {ep.episode_id for ep in self.episodes}
             ep_ids_to_purge = ep_ids_before - set(config.EPISODES_ALLOWED)
             self.episodes = [
@@ -245,4 +197,80 @@ class RxRVLNCEDatasetV1(Dataset):
             if episode.goals is not None:
                 for g_index, goal in enumerate(episode.goals):
                     episode.goals[g_index] = NavigationGoal(**goal)
+            self.episodes.append(episode)
+
+    @classmethod
+    def get_scenes_to_load(cls, config: Config) -> List[str]:
+        """Return a sorted list of scenes"""
+        assert cls.check_config_paths_exist(config)
+        dataset = cls(config)
+        return sorted(
+            {cls.scene_from_scene_path(e.scene_id) for e in dataset.episodes}
+        )
+
+    @classmethod
+    def extract_roles_from_config(cls, config: Config) -> List[str]:
+        if ALL_ROLES_MASK in config.ROLES:
+            return cls.annotation_roles
+        assert set(config.ROLES).issubset(set(cls.annotation_roles))
+        return config.ROLES
+
+    @classmethod
+    def check_config_paths_exist(cls, config: Config) -> bool:
+        return all(
+            os.path.exists(
+                config.DATA_PATH.format(split=config.SPLIT, role=role)
+            )
+            for role in cls.extract_roles_from_config(config)
+        ) and os.path.exists(config.SCENES_DIR)
+
+    @staticmethod
+    def _scene_from_episode(episode: VLNEpisode) -> str:
+        """Helper method to get the scene name from an episode.  Assumes
+        the scene_id is formated /path/to/<scene_name>.<ext>
+        """
+        return os.path.splitext(os.path.basename(episode.scene_id))[0]
+
+    @staticmethod
+    def _language_from_episode(episode: VLNExtendedEpisode) -> str:
+        return episode.instruction.language
+
+
+@attr.s(auto_attribs=True, kw_only=True)
+class ANSREpisode(VLNExtendedEpisode):
+    subgoals: Optional[List[NavigationGoal]] = attr.ib(default=None)
+
+
+@registry.register_dataset(name="ANSR-v1")
+class ANSRDatasetV1(VLNCEDatasetV1):
+    """Loads the ANSR VLN-CE dataset, which extends VLN-CE-v1 with subgoals."""
+
+    def from_json(
+        self, json_str: str, scenes_dir: Optional[str] = None
+    ) -> None:
+        deserialized = json.loads(json_str)
+        self.instruction_vocab = VocabDict(
+            word_list=deserialized["instruction_vocab"]["word_list"]
+        )
+
+        for episode in deserialized["episodes"]:
+            episode["episode_id"] = str(episode["episode_id"])
+            episode["trajectory_id"] = str(episode["trajectory_id"])
+
+            episode = ANSREpisode(**episode)
+
+            if scenes_dir is not None:
+                if episode.scene_id.startswith(DEFAULT_SCENE_PATH_PREFIX):
+                    episode.scene_id = episode.scene_id[
+                        len(DEFAULT_SCENE_PATH_PREFIX) :
+                    ]
+                episode.scene_id = os.path.join(scenes_dir, episode.scene_id)
+
+            episode.instruction = InstructionData(**episode.instruction)
+            if episode.goals is not None:
+                for g_index, goal in enumerate(episode.goals):
+                    episode.goals[g_index] = NavigationGoal(**goal)
+            if episode.subgoals is not None:
+                for s_index, subgoal in enumerate(episode.subgoals):
+                    episode.subgoals[s_index] = NavigationGoal(**subgoal)
             self.episodes.append(episode)

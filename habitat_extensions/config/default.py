@@ -92,6 +92,17 @@ _C.TASK.ORACLE_SPL.TYPE = "OracleSPL"
 _C.TASK.STEPS_TAKEN = CN()
 _C.TASK.STEPS_TAKEN.TYPE = "StepsTaken"
 # ----------------------------------------------------------------------------
+# BRANCH_SELECTION_ACCURACY MEASUREMENT
+# ----------------------------------------------------------------------------
+_C.TASK.BRANCH_SELECTION_ACCURACY = CN()
+_C.TASK.BRANCH_SELECTION_ACCURACY.TYPE = "BranchSelectionAccuracy"
+_C.TASK.BRANCH_SELECTION_ACCURACY.SUCCESS_DISTANCE = 1.0
+# ----------------------------------------------------------------------------
+# CONDITIONAL_SUCCESS_RATE MEASUREMENT
+# ----------------------------------------------------------------------------
+_C.TASK.CONDITIONAL_SUCCESS_RATE = CN()
+_C.TASK.CONDITIONAL_SUCCESS_RATE.TYPE = "ConditionalSuccessRate"
+# ----------------------------------------------------------------------------
 # POSITION MEASUREMENT For faster eval
 # ----------------------------------------------------------------------------
 _C.TASK.POSITION = CN()
@@ -122,6 +133,8 @@ _C.DATASET.ROLES = ["guide"]  # options: "*", "guide", "follower"
 _C.DATASET.LANGUAGES = ["*"]
 # a list or set of episode IDs to allow in dataset creation. None allows all.
 _C.DATASET.EPISODES_ALLOWED = None
+# If > 0, keep only the first N episodes (gzip order) after scene / EPISODES_ALLOWED filters. 0 = no cap.
+_C.DATASET.EPISODES_TO_LOAD = 0
 
 
 def get_extended_config(

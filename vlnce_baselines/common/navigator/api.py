@@ -5,6 +5,10 @@ import numpy as np
 import sys
 import os
 
+from PIL import Image, ImageFile
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 from tenacity import retry, wait_random_exponential, stop_after_attempt
 
 import transformers

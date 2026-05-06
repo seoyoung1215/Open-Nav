@@ -52,13 +52,17 @@ class MoveHighToLowAction(SimulatorTaskAction):
         # self._sim.get_agent(0).agent_config.action_space[
         #     forward_action].actuation.amount = distance
         
-        ksteps = int(distance//init_forward)
-        for k in range(ksteps):
-            if k == ksteps - 1:
-                output = self._sim.step(forward_action)
-            else:
-                self._sim.step_without_obs(forward_action)
-        
+        ksteps = int(distance // init_forward)
+        if ksteps == 0:
+            sim_obs = self._sim.get_sensor_observations()
+            output = self._sim._sensor_suite.get_observations(sim_obs)
+        else:
+            for k in range(ksteps):
+                if k == ksteps - 1:
+                    output = self._sim.step(forward_action)
+                else:
+                    self._sim.step_without_obs(forward_action)
+
         # self._sim.get_agent(0).agent_config.action_space[
         #     left_action].actuation.amount = init_left
         # self._sim.get_agent(0).agent_config.action_space[
@@ -97,21 +101,27 @@ class MoveHighToLowActionEval(SimulatorTaskAction):
         # self._sim.get_agent(0).agent_config.action_space[
         #     forward_action].actuation.amount = distance
 
-        ksteps = int(distance//init_forward)
-        for k in range(ksteps):
-            if k == ksteps - 1:
-                output = self._sim.step(forward_action)
-            else:
-                self._sim.step_without_obs(forward_action)
+        ksteps = int(distance // init_forward)
+        if ksteps == 0:
+            sim_obs = self._sim.get_sensor_observations()
+            output = self._sim._sensor_suite.get_observations(sim_obs)
             positions.append(self._sim.get_agent_state().position)
             collisions.append(self._sim.previous_step_collided)
+        else:
+            for k in range(ksteps):
+                if k == ksteps - 1:
+                    output = self._sim.step(forward_action)
+                else:
+                    self._sim.step_without_obs(forward_action)
+                positions.append(self._sim.get_agent_state().position)
+                collisions.append(self._sim.previous_step_collided)
 
         # self._sim.get_agent(0).agent_config.action_space[
         #     left_action].actuation.amount = init_left
         # self._sim.get_agent(0).agent_config.action_space[
         #     forward_action].actuation.amount = init_forward
-        output['positions'] = positions
-        output['collisions'] = collisions
+        output["positions"] = positions
+        output["collisions"] = collisions
 
         return output
 
@@ -155,18 +165,23 @@ class MoveHighToLowActionInfer(SimulatorTaskAction):
         # self._sim.get_agent(0).agent_config.action_space[
         #     forward_action].actuation.amount = distance
 
-        ksteps = int(distance//init_forward)
-        for k in range(ksteps):
-            if k == ksteps - 1:
-                output = self._sim.step(forward_action)
-            else:
-                self._sim.step_without_obs(forward_action)
+        ksteps = int(distance // init_forward)
+        if ksteps == 0:
+            sim_obs = self._sim.get_sensor_observations()
+            output = self._sim._sensor_suite.get_observations(sim_obs)
             infos.append(get_info(self._sim))
+        else:
+            for k in range(ksteps):
+                if k == ksteps - 1:
+                    output = self._sim.step(forward_action)
+                else:
+                    self._sim.step_without_obs(forward_action)
+                infos.append(get_info(self._sim))
 
         # self._sim.get_agent(0).agent_config.action_space[
         #     left_action].actuation.amount = init_left
         # self._sim.get_agent(0).agent_config.action_space[
         #     forward_action].actuation.amount = init_forward
-        output['infos'] = infos
+        output["infos"] = infos
 
         return output 

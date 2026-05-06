@@ -29,6 +29,8 @@ _C.EVAL = CN()
 # The split to evaluate on
 _C.EVAL.SPLIT = "val_seen"
 _C.EVAL.EPISODE_COUNT = -1
+# If > 0, _eval_llm rewrites snapshot JSON after every N completed episodes (I/O only; no navigation change).
+_C.EVAL.SNAPSHOT_EVERY_N_EPISODES = 0
 _C.EVAL.LANGUAGES = ["en-US", "en-IN"]
 _C.EVAL.SAMPLE = False
 _C.EVAL.SAVE_RESULTS = True
