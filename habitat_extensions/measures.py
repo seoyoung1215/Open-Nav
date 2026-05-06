@@ -379,25 +379,26 @@ class BranchSelectionAccuracy(Measure):
         self._subgoal_positions = []
         if getattr(episode, "subgoals", None) is not None:
             self._subgoal_positions = [sg.position for sg in episode.subgoals]
-        self._reached = [False] * len(self._subgoal_positions)
+        self._next_subgoal_idx = 0
         self._metric = 0.0
         self.update_metric(episode=episode)
 
     def update_metric(self, *args: Any, **kwargs: Any) -> None:
         if not self._subgoal_positions:
             return
+        if self._next_subgoal_idx >= len(self._subgoal_positions):
+            return
         agent_pos = self._sim.get_agent_state().position
-        for i, sg_pos in enumerate(self._subgoal_positions):
-            if not self._reached[i]:
-                if euclidean_distance(agent_pos, sg_pos) <= self._success_distance:
-                    self._reached[i] = True
-        self._metric = sum(self._reached) / len(self._reached)
+        sg_pos = self._subgoal_positions[self._next_subgoal_idx]
+        if euclidean_distance(agent_pos, sg_pos) <= self._success_distance:
+            self._next_subgoal_idx += 1
+        self._metric = self._next_subgoal_idx / len(self._subgoal_positions)
 
 
 @registry.register_measure
 class ConditionalSuccessRate(Measure):
     """Conditional Success Rate (CSR).
-    CSR = 1.0 iff the agent reaches every subgoal (BSA == 1.0) AND the final
+    CSR = 1.0 if the agent reaches every subgoal (BSA == 1.0) AND the final
     goal (Success == 1.0), otherwise 0.0.
     """
 
